@@ -9,11 +9,13 @@ jobs:
 
   build:
     name: Build Docker Image
-    permissions: write-all
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: main
       - name: Log in to GitHub Packages
@@ -22,11 +24,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull image
         run: |
-          docker pull ${{ env.IMAGE }}:latest || true
+          docker pull ${{ env.IMAGE }}:latest
       - name: Build image
+        env:
+          DOCKER_BUILDKIT: 1
         run: |
           docker build \
             --cache-from ${{ env.IMAGE }}:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
             --tag ${{ env.IMAGE }}:latest \
             --file ./project/Dockerfile.prod \
             "./project"
@@ -36,27 +41,19 @@ jobs:
 
   test:
     name: Test Docker Image
+    permissions:
+      packages: read
+      contents: read
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          ref: main
       - name: Log in to GitHub Packages
         run: echo ${GITHUB_TOKEN} | docker login -u ${GITHUB_ACTOR} --password-stdin ghcr.io
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull image
         run: |
-          docker pull ${{ env.IMAGE }}:latest || true
-      - name: Build image
-        run: |
-          docker build \
-            --cache-from ${{ env.IMAGE }}:latest \
-            --tag ${{ env.IMAGE }}:latest \
-            --file ./project/Dockerfile.prod \
-            "./project"
+          docker pull ${{ env.IMAGE }}:latest
       - name: Run container
         run: |
           docker run \
@@ -79,30 +76,31 @@ jobs:
 
   deploy:
     name: Deploy to Heroku
+    permissions:
+      packages: read
+      contents: read
     runs-on: ubuntu-latest
     needs: [build, test]
     env:
       HEROKU_APP_NAME: pure-chamber-36559
       HEROKU_REGISTRY_IMAGE: registry.heroku.com/${HEROKU_APP_NAME}/summarizer
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout release script
+        uses: actions/checkout@v4
         with:
           ref: main
+          sparse-checkout: |
+            release.sh
       - name: Log in to GitHub Packages
         run: echo ${GITHUB_TOKEN} | docker login -u ${GITHUB_ACTOR} --password-stdin ghcr.io
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull image
         run: |
-          docker pull ${{ env.IMAGE }}:latest || true
-      - name: Build image
+          docker pull ${{ env.IMAGE }}:latest
+      - name: Tag image for Heroku
         run: |
-          docker build \
-            --cache-from ${{ env.IMAGE }}:latest \
-            --tag ${{ env.HEROKU_REGISTRY_IMAGE }}:latest \
-            --file ./project/Dockerfile.prod \
-            "./project"
+          docker tag ${{ env.IMAGE }}:latest ${{ env.HEROKU_REGISTRY_IMAGE }}:latest
       - name: Log in to the Heroku Container Registry
         run: docker login -u _ -p ${HEROKU_AUTH_TOKEN} registry.heroku.com
         env:
