@@ -3,7 +3,6 @@ import os
 from fastapi import FastAPI
 from tortoise.contrib.fastapi import register_tortoise
 
-
 TORTOISE_ORM = {
     "connections": {"default": os.environ.get("DATABASE_URL")},
     "apps": {
